@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>장비 QR 코드 생성기</title>
+  <!-- QR 코드 라이브러리 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; max-width: 480px; margin: 0 auto; background: #f8f9fa; }
+    .card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .label { font-weight: bold; color: #444; font-size: 14px; }
+    input[type="text"] { width: 100%; padding: 10px; margin: 6px 0 14px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+    button { width: 100%; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 15px; margin-top: 6px; }
+    .btn-create { background: #24292f; color: white; }
+    .btn-open { background: #0969da; color: white; margin-top: 10px; }
+    .btn-download { background: #2da44e; color: white; margin-top: 8px; }
+    .hidden { display: none; }
+    #qrcode-container { display: flex; justify-content: center; margin: 20px 0; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2 style="margin-top:0;">장비 QR 코드 생성</h2>
+    <p style="font-size: 13px; color: #666; margin-bottom: 20px;">정보를 입력하면 판독용 <code>index.html</code>로 연결되는 QR 코드가 생성됩니다.</p>
+    
+    <label class="label">AM</label>
+    <input type="text" id="gen-am" placeholder="예: 홍길동">
+
+    <label class="label">PM</label>
+    <input type="text" id="gen-pm" placeholder="예: 김철수">
+
+    <label class="label">시리얼 번호</label>
+    <input type="text" id="gen-serial" placeholder="예: SRV-2026-654321">
+
+    <label class="label">사이트</label>
+    <input type="text" id="gen-site" placeholder="예: 판교 1센터">
+
+    <button class="btn-create" onclick="generateQR()">QR 코드 생성</button>
+
+    <!-- 생성 결과 영역 -->
+    <div id="result-box" class="hidden" style="text-align: center; margin-top: 25px; border-top: 1px solid #eee; padding-top: 20px;">
+      <div id="qrcode-container"></div>
+      <p style="font-size: 12px; color: #666; word-break: break-all;" id="target-url-text"></p>
+      
+      <button class="btn-open" onclick="openLink()">생성 링크 바로 열기 (테스트용)</button>
+      <button class="btn-download" onclick="downloadQR()">QR 이미지 다운로드 (PNG)</button>
+    </div>
+  </div>
+
+  <script>
+    let generatedUrl = "";
+
+    function generateQR() {
+      const am = document.getElementById("gen-am").value.trim();
+      const pm = document.getElementById("gen-pm").value.trim();
+      const serial = document.getElementById("gen-serial").value.trim();
+      const site = document.getElementById("gen-site").value.trim();
+
+      if (!am || !pm || !serial || !site) {
+        alert("모든 정보(AM, PM, 시리얼, 사이트)를 입력하세요.");
+        return;
+      }
+
+      // 같은 디렉터리의 index.html 주소 자동 감지
+      const currentPath = window.location.pathname;
+      const basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+      const indexUrl = window.location.origin + basePath + "index.html";
+
+      const payload = { am, pm, serial, site };
+      const encoded = encodeURIComponent(JSON.stringify(payload));
+      generatedUrl = `${indexUrl}?data=${encoded}`;
+
+      // QR 코드 렌더링
+      const container = document.getElementById("qrcode-container");
+      container.innerHTML = "";
+      new QRCode(container, {
+        text: generatedUrl,
+        width: 180,
+        height: 180
+      });
+
+      document.getElementById("target-url-text").textContent = generatedUrl;
+      document.getElementById("result-box").classList.remove("hidden");
+    }
+
+    function openLink() {
+      if (generatedUrl) window.open(generatedUrl, "_blank");
+    }
+
+    function downloadQR() {
+      const img = document.querySelector("#qrcode-container img");
+      if (!img) return;
+      const a = document.createElement("a");
+      a.href = img.src;
+      a.download = `QR_${document.getElementById("gen-serial").value.trim() || "asset"}.png`;
+      a.click();
+    }
+  </script>
+</body>
+</html>
