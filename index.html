@@ -3,194 +3,263 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>장비 수령/출고 테스트</title>
+  <title>장비 수령/출고 관리</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; max-width: 480px; margin: 0 auto; background: #f8f9fa; }
-    .card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    .row { display: flex; justify-content: space-between; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #eee; }
-    .label { font-weight: bold; color: #555; }
-    input[type="text"], input[type="date"] { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-    button { padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
-    .btn-block { width: 100%; background: #24292f; color: white; margin-top: 8px; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; max-width: 480px; margin: 0 auto; background: #f8f9fa; color: #24292f; }
+    .card { background: white; border: 1px solid #d0d7de; border-radius: 8px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    h2, h3, h4 { margin-top: 0; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #eaeef2; }
+    .label { font-weight: bold; color: #57606a; font-size: 14px; }
+    .value { font-weight: 600; color: #0969da; font-size: 14px; }
+    input[type="text"], input[type="date"], input[type="password"] { width: 100%; padding: 11px; margin: 8px 0 14px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 15px; }
+    button { width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; }
+    .btn-main { background: #24292f; color: white; margin-top: 6px; }
     .btn-recv { background: #2da44e; color: white; width: 48%; }
     .btn-disp { background: #0969da; color: white; width: 48%; }
     .btn-group { display: flex; justify-content: space-between; margin-bottom: 12px; }
     .hidden { display: none; }
-    .err { color: red; font-size: 13px; }
+    .err-text { color: #cf222e; font-size: 13px; margin-top: 4px; }
+    .link-reset { font-size: 12px; color: #6e7781; text-align: right; margin-top: 12px; cursor: pointer; text-decoration: underline; }
   </style>
 </head>
 <body>
 
-  <!-- 1. 끝 6자리 인증 화면 -->
-  <div id="auth-box" class="card">
-    <h3>시리얼 인증</h3>
-    <p>시리얼 번호 끝 6자리를 입력하세요.</p>
-    <input type="text" id="input-serial" maxlength="6" placeholder="예: 123456">
-    <button class="btn-block" onclick="checkAuth()">확인</button>
-    <p id="auth-err" class="err hidden">시리얼 번호 끝자리가 맞지 않습니다.</p>
+  <!-- 1. 보안 인증: 시리얼 끝 6자리 확인 -->
+  <div id="auth-card" class="card">
+    <h3>장비 보안 인증</h3>
+    <p style="font-size: 14px; color: #57606a;">장비 시리얼 번호 <b>끝 6자리</b>를 입력하세요.</p>
+    <input type="text" id="input-serial-check" maxlength="6" placeholder="예: 654321">
+    <button class="btn-main" onclick="verifySerial()">인증 확인</button>
+    <p id="auth-err-msg" class="err-text hidden">시리얼 번호 끝 6자리가 일치하지 않습니다.</p>
   </div>
 
-  <!-- 2. 장비 정보 및 처리 화면 -->
-  <div id="content-box" class="hidden">
+  <!-- 2. 장비 상세 내역 및 작업 처리 영역 -->
+  <div id="main-content-card" class="hidden">
     <div class="card">
       <h3>장비 정보</h3>
-      <div class="row"><span class="label">AM:</span><span id="v-am"></span></div>
-      <div class="row"><span class="label">PM:</span><span id="v-pm"></span></div>
-      <div class="row"><span class="label">시리얼번호:</span><span id="v-serial"></span></div>
-      <div class="row"><span class="label">사이트:</span><span id="v-site"></span></div>
+      <div class="row"><span class="label">AM</span><span class="value" id="val-am">-</span></div>
+      <div class="row"><span class="label">PM</span><span class="value" id="val-pm">-</span></div>
+      <div class="row"><span class="label">시리얼 번호</span><span class="value" id="val-serial">-</span></div>
+      <div class="row"><span class="label">사이트</span><span class="value" id="val-site">-</span></div>
     </div>
 
     <div class="card">
-      <h3>작업 선택</h3>
+      <h3>작업 유형 선택</h3>
       <div class="btn-group">
-        <button class="btn-recv" onclick="openForm('수령')">수령</button>
-        <button class="btn-disp" onclick="openForm('출고')">출고</button>
+        <button class="btn-recv" onclick="openActionForm('수령')">수령</button>
+        <button class="btn-disp" onclick="openActionForm('출고')">출고</button>
       </div>
 
-      <div id="input-form" class="hidden">
-        <h4 id="form-type"></h4>
-        <label class="label">담당자 이름</label>
-        <input type="text" id="worker-name" placeholder="이름 입력">
+      <div id="action-form-section" class="hidden">
+        <h4 id="action-heading" style="margin: 12px 0 8px;"></h4>
+        
+        <label class="label">담당자 성명</label>
+        <input type="text" id="worker-name" placeholder="이름을 입력하세요">
         
         <label class="label">처리 일자</label>
         <input type="date" id="worker-date">
 
-        <button class="btn-block" id="save-btn" onclick="saveData()">GitHub에 저장</button>
+        <button class="btn-main" id="btn-save" onclick="handleSaveAction()">GitHub에 저장</button>
       </div>
+
+      <div class="link-reset" onclick="clearStoredToken()">등록된 GitHub 토큰 초기화</div>
     </div>
   </div>
 
+  <!-- 3. GitHub Token 입력 모달 (최초 1회만 노출) -->
+  <div id="token-modal-card" class="card hidden" style="border: 2px solid #0969da;">
+    <h3 style="color: #0969da;">GitHub 토큰 등록</h3>
+    <p style="font-size: 13px; color: #57606a; line-height: 1.5;">
+      저장을 위해 GitHub Classic Token(`ghp_...`)이 필요합니다.<br>
+      최초 1회 입력 시 현재 브라우저에 안전하게 보관됩니다.
+    </p>
+    <input type="password" id="modal-token-input" placeholder="ghp_xxxxxxxxxxxxxxx">
+    <button class="btn-main" style="background: #0969da;" onclick="saveTokenAndProceed()">등록 후 계속 저장</button>
+  </div>
+
   <script>
-    // ==========================================
-    // ⚠️ 아래 3가지 값을 본인 정보로 수정하세요.
-    // ==========================================
-    const GITHUB_OWNER = "robustappliance";       // 본인 GitHub 아이디
-    const GITHUB_REPO  = "qr-asset-management";              // 저장소 이름
-    // const GITHUB_TOKEN = "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";  // 발급받은 Classic 토큰
+    // ============================================================
+    // ⚠️ 환경 설정값 (이메일 주소가 아닌 정확한 ID와 Repo명 사용)
+    // ============================================================
+    const GITHUB_OWNER = "robustappliance";     // GitHub 소유자명 / Organization ID
+    const GITHUB_REPO  = "qr-asset-management"; // 저장소 이름 (슬래시 제외)
     const DATA_FILE    = "records.json";
 
-    let qrData = null;
-    let currentType = "";
+    let qrPayload = null;
+    let selectedActionType = "";
 
-    // 1. 페이지 로드 시 URL의 ?data= 파라미터 파싱
+    // 페이지 진입 시 URL 파라미터(?data=...) 파싱
     window.onload = function() {
       const urlParams = new URLSearchParams(window.location.search);
-      const raw = urlParams.get("data");
+      const rawData = urlParams.get("data");
 
-      if (!raw) {
-        alert("QR 데이터가 없습니다. URL을 확인하세요.");
-        document.getElementById("auth-box").classList.add("hidden");
+      if (!rawData) {
+        document.getElementById("auth-card").innerHTML = `
+          <h3>오류</h3>
+          <p style="color: #cf222e; font-size: 14px;">장비 데이터가 전달되지 않았습니다.<br>gen.html에서 생성된 QR 코드로 접속하세요.</p>
+        `;
         return;
       }
 
       try {
-        qrData = JSON.parse(decodeURIComponent(raw));
-      } catch (e) {
-        alert("데이터 파싱 실패");
+        qrPayload = JSON.parse(decodeURIComponent(rawData));
+      } catch (err) {
+        alert("QR 데이터 형식이 올바르지 않습니다.");
       }
     };
 
-    // 2. 끝 6자리 확인
-    function checkAuth() {
-      const input = document.getElementById("input-serial").value.trim();
-      const actual = String(qrData.serial);
-      const last6 = actual.slice(-6);
+    // 시리얼 번호 끝 6자리 검증
+    function verifySerial() {
+      const input = document.getElementById("input-serial-check").value.trim();
+      const actualSerial = String(qrPayload.serial || "");
+      const expectedLast6 = actualSerial.slice(-6);
 
-      if (input === last6) {
-        document.getElementById("auth-box").classList.add("hidden");
-        document.getElementById("content-box").classList.remove("hidden");
+      if (input === expectedLast6) {
+        document.getElementById("auth-card").classList.add("hidden");
+        document.getElementById("main-content-card").classList.remove("hidden");
 
-        document.getElementById("v-am").textContent = qrData.am;
-        document.getElementById("v-pm").textContent = qrData.pm;
-        document.getElementById("v-serial").textContent = qrData.serial;
-        document.getElementById("v-site").textContent = qrData.site;
+        document.getElementById("val-am").textContent = qrPayload.am || "-";
+        document.getElementById("val-pm").textContent = qrPayload.pm || "-";
+        document.getElementById("val-serial").textContent = actualSerial;
+        document.getElementById("val-site").textContent = qrPayload.site || "-";
       } else {
-        document.getElementById("auth-err").classList.remove("hidden");
+        document.getElementById("auth-err-msg").classList.remove("hidden");
       }
     }
 
-    // 3. 수령 / 출고 버튼 클릭
-    function openForm(type) {
-      currentType = type;
-      document.getElementById("form-type").textContent = `[${type}] 정보 입력`;
-      document.getElementById("input-form").classList.remove("hidden");
+    // 수령/출고 버튼 선택 시 폼 열기
+    function openActionForm(type) {
+      selectedActionType = type;
+      document.getElementById("action-heading").textContent = `[${type}] 정보 입력`;
+      document.getElementById("action-form-section").classList.remove("hidden");
       document.getElementById("worker-date").value = new Date().toISOString().split("T")[0];
     }
 
-    // 4. GitHub records.json 파일에 직접 저장
-    async function saveData() {
-      const name = document.getElementById("worker-name").value.trim();
-      const date = document.getElementById("worker-date").value;
-      const btn = document.getElementById("save-btn");
+    // 토큰 재설정
+    function clearStoredToken() {
+      localStorage.removeItem("gh_classic_token");
+      alert("브라우저에 저장된 토큰이 삭제되었습니다.");
+    }
 
-      if (!name || !date) {
-        alert("이름과 날짜를 입력하세요.");
+    // 저장 버튼 클릭 핸들러
+    async function handleSaveAction() {
+      const worker = document.getElementById("worker-name").value.trim();
+      const date = document.getElementById("worker-date").value;
+
+      if (!worker || !date) {
+        alert("담당자 이름과 날짜를 입력하세요.");
         return;
       }
 
-      btn.disabled = true;
-      btn.textContent = "저장 중...";
+      let token = localStorage.getItem("gh_classic_token");
+      if (!token) {
+        document.getElementById("main-content-card").classList.add("hidden");
+        document.getElementById("token-modal-card").classList.remove("hidden");
+        return;
+      }
 
-      const newEntry = {
-        type: currentType,
-        worker: name,
+      await executeCommit(token);
+    }
+
+    // 모달에서 토큰 입력 완료 시 처리
+    function saveTokenAndProceed() {
+      const inputToken = document.getElementById("modal-token-input").value.trim();
+      if (!inputToken) {
+        alert("토큰을 입력해주세요.");
+        return;
+      }
+
+      localStorage.setItem("gh_classic_token", inputToken);
+      document.getElementById("token-modal-card").classList.add("hidden");
+      document.getElementById("main-content-card").classList.remove("hidden");
+      executeCommit(inputToken);
+    }
+
+    // 실제 GitHub API 커밋 실행
+    async function executeCommit(token) {
+      const worker = document.getElementById("worker-name").value.trim();
+      const date = document.getElementById("worker-date").value;
+      const saveBtn = document.getElementById("btn-save");
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = "저장 처리 중...";
+
+      const newRecord = {
+        type: selectedActionType,
+        worker: worker,
         date: date,
         saved_at: new Date().toISOString(),
-        device: qrData
+        device: qrPayload
       };
 
       const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_FILE}`;
 
       try {
-        // 기존 records.json 파일 확인
-        let sha = null;
+        let fileSha = null;
         let records = [];
 
+        // 1. 기존 records.json 파일 읽기
         const getRes = await fetch(apiUrl, {
           headers: {
-            "Authorization": `Bearer ${GITHUB_TOKEN}`,
+            "Authorization": `token ${token}`,
             "Accept": "application/vnd.github.v3+json"
           }
         });
 
         if (getRes.status === 200) {
-          const fileData = await getRes.json();
-          sha = fileData.sha;
-          const decoded = decodeURIComponent(escape(atob(fileData.content)));
-          records = JSON.parse(decoded);
+          const fileInfo = await getRes.json();
+          fileSha = fileInfo.sha;
+          const decodedStr = decodeURIComponent(escape(atob(fileInfo.content)));
+          records = JSON.parse(decodedStr);
+        } else if (getRes.status === 401) {
+          localStorage.removeItem("gh_classic_token");
+          alert("에러 [401 Bad credentials]: 토큰이 유효하지 않습니다. 다시 입력해주세요.");
+          location.reload();
+          return;
+        } else if (getRes.status === 404) {
+          // 파일이 아직 없는 초기 상태는 정상이므로 빈 배열 유지
+          records = [];
+        } else {
+          const resBody = await getRes.text();
+          throw new Error(`[HTTP ${getRes.status}] ${resBody}`);
         }
 
-        // 새 데이터 추가
-        records.push(newEntry);
+        // 2. 새 내역 추가
+        records.push(newRecord);
 
-        // GitHub에 커밋
+        // 3. UTF-8 인코딩 후 Base64 변환 커밋
+        const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(records, null, 2))));
         const putRes = await fetch(apiUrl, {
           method: "PUT",
           headers: {
-            "Authorization": `Bearer ${GITHUB_TOKEN}`,
+            "Authorization": `token ${token}`,
             "Content-Type": "application/json",
             "Accept": "application/vnd.github.v3+json"
           },
           body: JSON.stringify({
-            message: `Update: ${qrData.serial} - ${currentType} by ${name}`,
-            content: btoa(unescape(encodeURIComponent(JSON.stringify(records, null, 2)))),
-            sha: sha || undefined
+            message: `Record ${selectedActionType}: ${qrPayload.serial} by ${worker}`,
+            content: encodedContent,
+            sha: fileSha || undefined
           })
         });
 
         if (putRes.ok) {
-          alert(`${currentType} 저장 완료!`);
+          alert(`${selectedActionType} 처리가 성공적으로 GitHub에 저장되었습니다!`);
           location.reload();
         } else {
-          const err = await putRes.json();
-          alert(`저장 실패: ${err.message}`);
-          btn.disabled = false;
-          btn.textContent = "GitHub에 저장";
+          const putErrBody = await putRes.text();
+          if (putRes.status === 401) {
+            localStorage.removeItem("gh_classic_token");
+          }
+          alert(`저장 실패 [HTTP ${putRes.status}]:\n${putErrBody}`);
+          saveBtn.disabled = false;
+          saveBtn.textContent = "GitHub에 저장";
         }
-      } catch (e) {
-        alert("네트워크 오류 발생");
-        btn.disabled = false;
-        btn.textContent = "GitHub에 저장";
+      } catch (err) {
+        alert(`통신 오류 발생:\n${err.message}\n\n호출 주소:\n${apiUrl}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = "GitHub에 저장";
       }
     }
   </script>
