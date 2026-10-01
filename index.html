@@ -210,21 +210,67 @@
         if (getRes.status === 200) {
           const fileInfo = await getRes.json();
           fileSha = fileInfo.sha;
-          const decodedStr = decodeURIComponent(escape(atob(fileInfo.content)));
-          records = JSON.parse(decodedStr);
+          
+          // 빈 파일이거나 공백만 있는 경우 안전 처리
+          if (fileInfo.content && fileInfo.content.trim() !== "") {
+            try {
+              const decodedStr = decodeURIComponent(escape(atob(fileInfo.content.trim())));
+              records = decodedStr.trim() ? JSON.parse(decodedStr) : [];
+              if (!Array.isArray(records)) records = [];
+            } catch (_) {
+              records = []; // 깨졌거나 비어있으면 새 배열로 초기화
+            }
+          }
         } else if (getRes.status === 401) {
           localStorage.removeItem("gh_classic_token");
           alert("에러 [401 Bad credentials]: 토큰이 유효하지 않습니다. 다시 입력해주세요.");
           location.reload();
           return;
         } else if (getRes.status === 404) {
-          // 파일이 아직 없는 초기 상태는 정상이므로 빈 배열 유지
+          // 파일이 아직 없는 경우 정상
           records = [];
         } else {
           const resBody = await getRes.text();
           throw new Error(`[HTTP ${getRes.status}] ${resBody}`);
         }
 
+        // 2. 새 레코드 추가
+        records.push(newRecord);
+
+        // 3. GitHub에 커밋
+        const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(records, null, 2))));
+        const putRes = await fetch(apiUrl, {
+          method: "PUT",
+          headers: {
+            "Authorization": `token ${token}`,
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github.v3+json"
+          },
+          body: JSON.stringify({
+            message: `Record ${selectedActionType}: ${qrPayload.serial} by ${worker}`,
+            content: encodedContent,
+            sha: fileSha || undefined
+          })
+        });
+
+        if (putRes.ok) {
+          alert(`${selectedActionType} 처리가 성공적으로 GitHub에 저장되었습니다!`);
+          location.reload();
+        } else {
+          const putErrBody = await putRes.text();
+          if (putRes.status === 401) {
+            localStorage.removeItem("gh_classic_token");
+          }
+          alert(`저장 실패 [HTTP ${putRes.status}]:\n${putErrBody}`);
+          saveBtn.disabled = false;
+          saveBtn.textContent = "GitHub에 저장";
+        }
+      } catch (err) {
+        alert(`통신 오류:\n${err.message}\n\n호출 주소:\n${apiUrl}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = "GitHub에 저장";
+      }
+    }
         // 2. 새 내역 추가
         records.push(newRecord);
 
