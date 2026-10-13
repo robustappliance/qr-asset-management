@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>장비 수령/출고 관리</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; max-width: 480px; margin: 0 auto; background: #f8f9fa; color: #24292f; }
+    .card { background: white; border: 1px solid #d0d7de; border-radius: 8px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    h3, h4 { margin-top: 0; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #eaeef2; }
+    .label { font-weight: bold; color: #57606a; font-size: 14px; }
+    .value { font-weight: 600; color: #0969da; font-size: 14px; }
+    input[type="text"], input[type="date"] { width: 100%; padding: 11px; margin: 8px 0 14px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 15px; }
+    button { width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; }
+    .btn-main { background: #24292f; color: white; margin-top: 6px; }
+    .btn-recv { background: #2da44e; color: white; width: 48%; }
+    .btn-disp { background: #0969da; color: white; width: 48%; }
+    .btn-group { display: flex; justify-content: space-between; margin-bottom: 12px; }
+    .hidden { display: none; }
+    .err-text { color: #cf222e; font-size: 13px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. 끝 6자리 인증 -->
+  <div id="auth-card" class="card">
+    <h3>장비 보안 인증</h3>
+    <p style="font-size: 14px; color: #57606a;">장비 시리얼 번호 <b>끝 6자리</b>를 입력하세요.</p>
+    <input type="text" id="input-serial-check" maxlength="6" placeholder="예: 654321">
+    <button class="btn-main" onclick="verifyAndUnlock()">인증 확인</button>
+    <p id="auth-err-msg" class="err-text hidden">시리얼 번호 끝 6자리가 일치하지 않습니다.</p>
+  </div>
+
+  <!-- 2. 장비 정보 및 처리 -->
+  <div id="main-content-card" class="hidden">
+    <div class="card">
+      <h3>장비 정보</h3>
+      <div class="row"><span class="label">AM</span><span class="value" id="val-am">-</span></div>
+      <div class="row"><span class="label">PM</span><span class="value" id="val-pm">-</span></div>
+      <div class="row"><span class="label">시리얼 번호</span><span class="value" id="val-serial">-</span></div>
+      <div class="row"><span class="label">사이트</span><span class="value" id="val-site">-</span></div>
+    </div>
+
+    <div class="card">
+      <h3>작업 유형 선택</h3>
+      <div class="btn-group">
+        <button class="btn-recv" onclick="openActionForm('수령')">수령</button>
+        <button class="btn-disp" onclick="openActionForm('출고')">출고</button>
+      </div>
+
+      <div id="action-form-section" class="hidden">
+        <h4 id="action-heading" style="margin: 12px 0 8px;"></h4>
+        <label class="label">담당자 성명</label>
+        <input type="text" id="worker-name" placeholder="이름을 입력하세요">
+        
+        <label class="label">처리 일자</label>
+        <input type="date" id="worker-date">
+
+        <button class="btn-main" id="btn-save" onclick="handleSaveAction()">GitHub에 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const GITHUB_OWNER = "robustappliance";
+    const GITHUB_REPO  = "qr-asset-management";
+    const DATA_FILE    = "records.json";
+
+    let qrPayload = null;
+    let unlockedToken = ""; // 복호화된 토큰 보관
+    let selectedActionType = "";
+
+    window.onload = function() {
+      let raw = "";
+      if (window.location.hash && window.location.hash.length > 1) {
+        raw = window.location.hash.substring(1);
+      } else {
+        const urlParams = new URLSearchParams(window.location.search);
+        raw = urlParams.get("data");
+      }
+
+      if (!raw) {
+        document.getElementById("auth-card").innerHTML = `
+          <h3>오류</h3>
+          <p style="color: #cf222e; font-size: 14px;">장비 데이터가 없습니다. gen.html에서 생성된 QR 코드로 접속하세요.</p>
+        `;
+        return;
+      }
+
+      try {
+        let decodedStr;
+        try {
+          decodedStr = decodeURIComponent(escape(atob(raw)));
+        } catch (_) {
+          decodedStr = decodeURIComponent(raw);
+        }
+        qrPayload = JSON.parse(decodedStr);
+
+        // 주소창 URL 정리
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+
+      } catch (err) {
+        alert("장비 데이터 복원 실패: " + err.message);
+      }
+    };
+
+    // 시리얼 6자리 인증 및 토큰 자동 복호화
+    function verifyAndUnlock() {
+      if (!qrPayload || !qrPayload.serial) return;
+
+      const inputVal = document.getElementById("input-serial-check").value.trim().toUpperCase();
+      const actualSerial = String(qrPayload.serial).trim().toUpperCase();
+      const expectedLast6 = actualSerial.slice(-6);
+
+      if (inputVal === expectedLast6) {
+        // 암호화된 토큰 복호화
+        if (qrPayload.encToken) {
+          try {
+            const bytes = CryptoJS.AES.decrypt(qrPayload.encToken, inputVal);
+            unlockedToken = bytes.toString(CryptoJS.enc.Utf8);
+          } catch (e) {
+            console.error("토큰 복호화 에러", e);
+          }
+        }
+
+        document.getElementById("auth-card").classList.add("hidden");
+        document.getElementById("main-content-card").classList.remove("hidden");
+
+        document.getElementById("val-am").textContent = qrPayload.am || "-";
+        document.getElementById("val-pm").textContent = qrPayload.pm || "-";
+        document.getElementById("val-serial").textContent = qrPayload.serial;
+        document.getElementById("val-site").textContent = qrPayload.site || "-";
+      } else {
+        document.getElementById("auth-err-msg").classList.remove("hidden");
+      }
+    }
+
+    function openActionForm(type) {
+      selectedActionType = type;
+      document.getElementById("action-heading").textContent = `[${type}] 정보 입력`;
+      document.getElementById("action-form-section").classList.remove("hidden");
+      document.getElementById("worker-date").value = new Date().toISOString().split("T")[0];
+    }
+
+    async function handleSaveAction() {
+      const worker = document.getElementById("worker-name").value.trim();
+      const date = document.getElementById("worker-date").value;
+      const saveBtn = document.getElementById("btn-save");
+
+      if (!worker || !date) {
+        alert("이름과 일자를 모두 입력하세요.");
+        return;
+      }
+
+      if (!unlockedToken) {
+        alert("토큰이 복호화되지 않았습니다. gen.html에서 토큰을 포함해 QR을 다시 만드세요.");
+        return;
+      }
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = "저장 처리 중...";
+
+      // 장비 원본 데이터 (암호화 토큰 필드는 제거 후 순수 데이터만 저장)
+      const cleanDeviceInfo = {
+        am: qrPayload.am,
+        pm: qrPayload.pm,
+        serial: qrPayload.serial,
+        site: qrPayload.site
+      };
+
+      const newRecord = {
+        type: selectedActionType,
+        worker: worker,
+        date: date,
+        saved_at: new Date().toISOString(),
+        device: cleanDeviceInfo
+      };
+
+      const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_FILE}`;
+
+      try {
+        let fileSha = null;
+        let records = [];
+
+        // 1. 기존 파일 읽기
+        const getRes = await fetch(apiUrl, {
+          headers: {
+            "Authorization": `token ${unlockedToken}`,
+            "Accept": "application/vnd.github.v3+json"
+          }
+        });
+
+        if (getRes.status === 200) {
+          const fileInfo = await getRes.json();
+          fileSha = fileInfo.sha;
+          if (fileInfo.content && fileInfo.content.trim() !== "") {
+            try {
+              const decodedStr = decodeURIComponent(escape(atob(fileInfo.content.trim())));
+              records = decodedStr.trim() ? JSON.parse(decodedStr) : [];
+              if (!Array.isArray(records)) records = [];
+            } catch (_) {
+              records = [];
+            }
+          }
+        } else if (getRes.status === 404) {
+          records = [];
+        } else {
+          const resBody = await getRes.text();
+          throw new Error(`[HTTP ${getRes.status}] ${resBody}`);
+        }
+
+        records.push(newRecord);
+
+        // 2. 신규 레코드 커밋
+        const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(records, null, 2))));
+        const putRes = await fetch(apiUrl, {
+          method: "PUT",
+          headers: {
+            "Authorization": `token ${unlockedToken}`,
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github.v3+json"
+          },
+          body: JSON.stringify({
+            message: `Record ${selectedActionType}: ${cleanDeviceInfo.serial} by ${worker}`,
+            content: encodedContent,
+            sha: fileSha || undefined
+          })
+        });
+
+        if (putRes.ok) {
+          alert(`${selectedActionType} 처리가 성공적으로 GitHub에 저장되었습니다!`);
+          location.reload();
+        } else {
+          const putErrBody = await putRes.text();
+          alert(`저장 실패 [HTTP ${putRes.status}]:\n${putErrBody}`);
+          saveBtn.disabled = false;
+          saveBtn.textContent = "GitHub에 저장";
+        }
+      } catch (err) {
+        alert(`저장 중 오류:\n${err.message}`);
+        saveBtn.disabled = false;
+        saveBtn.textContent = "GitHub에 저장";
+      }
+    }
+  </script>
+</body>
+</html>
