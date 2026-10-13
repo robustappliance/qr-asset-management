@@ -12,6 +12,7 @@
     h3, h4 { margin-top: 0; }
     .row { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #eaeef2; }
     .label { font-weight: bold; color: #57606a; font-size: 14px; }
+    .required { color: #cf222e; font-weight: bold; }
     .value { font-weight: 600; color: #0969da; font-size: 14px; }
     input[type="text"], input[type="date"] { width: 100%; padding: 11px; margin: 8px 0 14px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 15px; }
     button { width: 100%; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 15px; }
@@ -19,8 +20,10 @@
     .btn-recv { background: #2da44e; color: white; width: 48%; }
     .btn-disp { background: #0969da; color: white; width: 48%; }
     .btn-group { display: flex; justify-content: space-between; margin-bottom: 12px; }
+    .btn-camera { background: #0969da; color: white; padding: 12px; margin: 8px 0; border-radius: 6px; font-size: 14px; }
     .hidden { display: none; }
     .err-text { color: #cf222e; font-size: 13px; margin-top: 4px; }
+    #preview-img { width: 100%; max-height: 250px; object-fit: contain; border-radius: 6px; border: 1px solid #ddd; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -53,13 +56,24 @@
 
       <div id="action-form-section" class="hidden">
         <h4 id="action-heading" style="margin: 12px 0 8px;"></h4>
-        <label class="label">담당자 성명</label>
+        
+        <label class="label">담당자 성명 <span class="required">*</span></label>
         <input type="text" id="worker-name" placeholder="이름을 입력하세요">
         
-        <label class="label">처리 일자</label>
+        <label class="label">처리 일자 <span class="required">*</span></label>
         <input type="date" id="worker-date">
 
-        <button class="btn-main" id="btn-save" onclick="handleSaveAction()">GitHub에 저장</button>
+        <!-- 사진 촬영 / 첨부 영역 (필수) -->
+        <label class="label">현장 확인 사진 <span class="required">* (필수)</span></label>
+        <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none;" onchange="handleImageSelected(event)">
+        <button type="button" class="btn-camera" onclick="document.getElementById('camera-input').click()">📷 사진 촬영 / 앨범 선택</button>
+        
+        <div id="img-preview-box" class="hidden" style="text-align: center;">
+          <img id="preview-img" src="" alt="미리보기">
+          <p id="img-size-info" style="font-size: 12px; color: #0969da; margin-top: 4px; font-weight: bold;"></p>
+        </div>
+
+        <button class="btn-main" id="btn-save" onclick="handleSaveAction()" style="margin-top: 15px;">GitHub에 저장</button>
       </div>
     </div>
   </div>
@@ -70,8 +84,9 @@
     const DATA_FILE    = "records.json";
 
     let qrPayload = null;
-    let unlockedToken = ""; // 복호화된 토큰 보관
+    let unlockedToken = "";
     let selectedActionType = "";
+    let compressedBase64Image = null;
 
     window.onload = function() {
       let raw = "";
@@ -99,7 +114,7 @@
         }
         qrPayload = JSON.parse(decodedStr);
 
-        // 주소창 URL 정리
+        // URL 정리
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
 
@@ -108,7 +123,6 @@
       }
     };
 
-    // 시리얼 6자리 인증 및 토큰 자동 복호화
     function verifyAndUnlock() {
       if (!qrPayload || !qrPayload.serial) return;
 
@@ -117,13 +131,12 @@
       const expectedLast6 = actualSerial.slice(-6);
 
       if (inputVal === expectedLast6) {
-        // 암호화된 토큰 복호화
         if (qrPayload.encToken) {
           try {
             const bytes = CryptoJS.AES.decrypt(qrPayload.encToken, inputVal);
             unlockedToken = bytes.toString(CryptoJS.enc.Utf8);
           } catch (e) {
-            console.error("토큰 복호화 에러", e);
+            console.error("토큰 복호화 실패", e);
           }
         }
 
@@ -146,48 +159,119 @@
       document.getElementById("worker-date").value = new Date().toISOString().split("T")[0];
     }
 
+    // 카메라 촬영 이미지 리사이징 및 압축 (가로 1024px, JPEG 0.72)
+    function handleImageSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 1024;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width);
+            width = MAX_WIDTH;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+          compressedBase64Image = dataUrl.split(",")[1];
+
+          document.getElementById("preview-img").src = dataUrl;
+          document.getElementById("img-preview-box").classList.remove("hidden");
+          const approxKb = Math.round((compressedBase64Image.length * 3 / 4) / 1024);
+          document.getElementById("img-size-info").textContent = `✓ 사진 등록 완료 (${approxKb} KB)`;
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
     async function handleSaveAction() {
       const worker = document.getElementById("worker-name").value.trim();
       const date = document.getElementById("worker-date").value;
       const saveBtn = document.getElementById("btn-save");
 
       if (!worker || !date) {
-        alert("이름과 일자를 모두 입력하세요.");
+        alert("담당자 이름과 처리 일자를 모두 입력하세요.");
+        return;
+      }
+
+      // ⚠️ 사진 필수 등록 검증
+      if (!compressedBase64Image) {
+        alert("현장 확인 사진을 반드시 촬영하거나 첨부해야 저장이 가능합니다.");
         return;
       }
 
       if (!unlockedToken) {
-        alert("토큰이 복호화되지 않았습니다. gen.html에서 토큰을 포함해 QR을 다시 만드세요.");
+        alert("토큰이 복호화되지 않았습니다. gen.html에서 다시 생성하세요.");
         return;
       }
 
       saveBtn.disabled = true;
-      saveBtn.textContent = "저장 처리 중...";
+      saveBtn.textContent = "저장 처리 중 (사진 업로드 포함)...";
 
-      // 장비 원본 데이터 (암호화 토큰 필드는 제거 후 순수 데이터만 저장)
-      const cleanDeviceInfo = {
-        am: qrPayload.am,
-        pm: qrPayload.pm,
-        serial: qrPayload.serial,
-        site: qrPayload.site
-      };
-
-      const newRecord = {
-        type: selectedActionType,
-        worker: worker,
-        date: date,
-        saved_at: new Date().toISOString(),
-        device: cleanDeviceInfo
-      };
-
-      const apiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_FILE}`;
+      const timestamp = new Date().getTime();
+      let uploadedImagePath = null;
 
       try {
+        // 1. 필수 사진 파일 GitHub images/ 폴더에 업로드
+        const imgFileName = `images/${date}_${qrPayload.serial}_${selectedActionType}_${timestamp}.jpg`;
+        const imgApiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${imgFileName}`;
+
+        const imgPutRes = await fetch(imgApiUrl, {
+          method: "PUT",
+          headers: {
+            "Authorization": `token ${unlockedToken}`,
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.github.v3+json"
+          },
+          body: JSON.stringify({
+            message: `Upload photo: ${qrPayload.serial} - ${selectedActionType}`,
+            content: compressedBase64Image
+          })
+        });
+
+        if (!imgPutRes.ok) {
+          const imgErr = await imgPutRes.text();
+          throw new Error("사진 업로드 실패: " + imgErr);
+        }
+
+        uploadedImagePath = imgFileName;
+
+        // 2. records.json 데이터 준비
+        const cleanDeviceInfo = {
+          am: qrPayload.am,
+          pm: qrPayload.pm,
+          serial: qrPayload.serial,
+          site: qrPayload.site
+        };
+
+        const newRecord = {
+          type: selectedActionType,
+          worker: worker,
+          date: date,
+          saved_at: new Date().toISOString(),
+          image_path: uploadedImagePath,
+          device: cleanDeviceInfo
+        };
+
+        const recordsApiUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${DATA_FILE}`;
+
         let fileSha = null;
         let records = [];
 
-        // 1. 기존 파일 읽기
-        const getRes = await fetch(apiUrl, {
+        const getRes = await fetch(recordsApiUrl, {
           headers: {
             "Authorization": `token ${unlockedToken}`,
             "Accept": "application/vnd.github.v3+json"
@@ -215,9 +299,9 @@
 
         records.push(newRecord);
 
-        // 2. 신규 레코드 커밋
+        // 3. records.json 커밋
         const encodedContent = btoa(unescape(encodeURIComponent(JSON.stringify(records, null, 2))));
-        const putRes = await fetch(apiUrl, {
+        const putRes = await fetch(recordsApiUrl, {
           method: "PUT",
           headers: {
             "Authorization": `token ${unlockedToken}`,
@@ -232,7 +316,7 @@
         });
 
         if (putRes.ok) {
-          alert(`${selectedActionType} 처리가 성공적으로 GitHub에 저장되었습니다!`);
+          alert(`${selectedActionType} 처리 및 사진 저장이 성공적으로 완료되었습니다!`);
           location.reload();
         } else {
           const putErrBody = await putRes.text();
@@ -240,8 +324,9 @@
           saveBtn.disabled = false;
           saveBtn.textContent = "GitHub에 저장";
         }
+
       } catch (err) {
-        alert(`저장 중 오류:\n${err.message}`);
+        alert(`저장 오류:\n${err.message}`);
         saveBtn.disabled = false;
         saveBtn.textContent = "GitHub에 저장";
       }
